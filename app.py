@@ -1,74 +1,68 @@
-# 各種ライブラリの読み込み
+import os
 import streamlit as st
 from dotenv import load_dotenv
-from langchain.chat_models import ChatOpenAI
-from langchain.schema import SystemMessage, HumanMessage
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
 
-# 環境変数の読み込み
+# 環境変数からAPIキーを読み込む
 load_dotenv()
 
-def get_llm_response(user_message, selected_theme):
-    """
-    LLMからの回答を取得する処理
-    """
-    # モデルのオブジェクトを用意
-    llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.5)
+api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
 
-    # 選択テーマに応じて使用するプロンプトのシステムメッセージを分岐
-    if selected_theme == theme_1:
-        system_message = """
-            あなたは運動の専門家です。フィットネス、トレーニング、ストレッチ、リハビリテーション、スポーツ科学に関する豊富な知識を持っています。ユーザーの質問には、科学的根拠に基づいた適切なアドバイスを提供し、安全性を最優先に考慮してください。
+# OpenAI APIキーが設定されていない場合のエラーハンドリングを追加
+if not api_key:
+    st.error("OpenAI APIキーが設定されていません。.envファイルにOPENAI_API_KEYを設定してください。")
+    st.stop()
 
-            あなたの役割は、初心者から上級者まで幅広いユーザーに適した運動方法を提案し、正しいフォームや注意点を指導することです。また、無理な運動を推奨せず、個々の健康状態や目標に応じたアドバイスを行ってください。
+try:
+    llm = ChatOpenAI(
+        temperature=0.5,
+        model="gpt-3.5-turbo",
+        api_key=api_key
+    )
+except Exception as e:
+    st.error(f"ChatOpenAIの初期化に失敗しました: {e}")
+    st.stop()
 
-            回答には、できるだけ具体的な説明を加え、必要に応じて簡単なステップバイステップのガイドを提供してください。医学的な診断は行わず、健康に不安がある場合は医師の相談を促してください。
-        """
-    else:
-        system_message = """
-            あなたは睡眠の専門家です。睡眠科学、睡眠衛生、睡眠障害、リズム管理、リラクゼーション技法に関する深い知識を持っています。ユーザーに対して、科学的根拠に基づいた適切なアドバイスを提供し、健康的な睡眠習慣の確立をサポートしてください。
+# 専門家の種類と対応するシステムメッセージ
+types_of_experts = {
+    "法律の専門家": "あなたは法律の専門家です。その分野の知識に基づいて回答してください。",
+    "動物の専門家": "あなたは動物の専門家です。その分野の知識に基づいて回答してください。"
+}
 
-            あなたの役割は、ユーザーが良質な睡眠を得るための具体的な方法を提案し、睡眠の仕組みや重要性をわかりやすく説明することです。ストレス管理、快適な寝室環境の作り方、規則正しい生活リズムの維持、食事や運動との関係についても適切なアドバイスを行ってください。
-
-            医学的な診断や治療の提案は行わず、重度の睡眠障害が疑われる場合は、専門の医師や睡眠クリニックの受診を推奨してください。
-
-        """
-    
-    # メッセージリストの用意
+def get_llm_response(user_input: str, expert_type: str) -> str:
+    system_prompt = types_of_experts.get(expert_type, "あなたは知識豊富なアシスタントです。")
     messages = [
-        SystemMessage(content=system_message),
-        HumanMessage(content=user_message)
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_input)
     ]
-    # LLMからの回答取得
-    response = llm(messages)
+    try:
+        response = llm.invoke(messages)
+        return response.content
+    except Exception as e:
+        return f"エラーが発生しました: {e}"
 
-    return response.content
+# Streamlitアプリ本体
+st.title("専門家チャットWebアプリ")
+st.write("以下のフォームに相談内容を入力し、専門家に相談することができます。")
 
-
-# 案内文の表示
-st.title("運動・睡眠のチャット相談アプリ")
-st.write("運動・睡眠に関する生成AIチャット相談アプリです。以下の選択肢から相談したいテーマを選択の上、チャット欄から相談内容を送信すると、専門家AIが的確な回答を行ってくれます。")
-
-# テーマの選択肢を用意
-theme_1 = "運動"
-theme_2 = "睡眠"
-
-# 相談テーマ選択用のラジオボタン
-selected_theme = st.radio(
-    "【テーマ】",
-    [theme_1, theme_2]
-)
-
-# 区切り線
 st.divider()
 
-# チャット欄
-user_message = st.text_input(label="相談内容を入力してください")
+# ラジオボタンで専門家選択
+expert_type = st.radio("相談したい専門家を選択してください：", ["法律の専門家", "動物の専門家"])
 
-# ボタン
+# テキスト入力
+user_input = st.text_area("相談内容を入力してください：")
+
+# 実行ボタン
 if st.button("送信"):
-    # 区切り線
     st.divider()
-    # LLMからの回答取得
-    response = get_llm_response(user_message, selected_theme)
-    # LLMからの回答表示
-    st.write(response)
+    if not user_input.strip():
+        st.error("相談内容を入力してください。")
+    else:
+        with st.spinner('専門家が回答を考えています...'):
+            result = get_llm_response(user_input, expert_type)
+        st.write("あなたの質問:")
+        st.write(user_input)
+        st.write("専門家からの回答:")
+        st.write(result)
